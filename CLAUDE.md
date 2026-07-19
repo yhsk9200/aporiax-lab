@@ -13,9 +13,9 @@ Phase 1 부트스트랩 완료: VM `mlx-1`(OrbStack Ubuntu, arm64) + k3s `v1.32.
 
 ## 다음 작업
 
-1. VM에 tailscaled 설치·인증 (수동)
-2. 연결 계약 이행 — gitops-infra 쪽 PR (OCI Grafana datasource 추가)
-3. ML/LLM 실험 스택 (게이트웨이/RAG/eval, 호스트 네이티브 추론 하이브리드)
+1. ~~VM에 tailscaled 설치·인증~~ → ✅ 완료 (2026-07-19, mlx-1 = 100.105.255.40)
+2. ~~연결 계약 ② 이행~~ → ✅ 완료 (2026-07-19, gitops-infra PR #43): OCI Grafana에 aporiax-lab-prometheus datasource — ConfigMap 반영·sidecar 리로드 200 실측. 계약 ③(→OCI MLflow 기록)은 첫 실험 워크로드에서 실측 예정
+3. ML/LLM 실험 스택 (게이트웨이/RAG/eval, 호스트 네이티브 추론 하이브리드) — 다음 착수점
 
 ## 명명 규칙
 

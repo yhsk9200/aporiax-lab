@@ -1,0 +1,4 @@
+*.yaml.local
+pub-cert.pem
+.DS_Store
+kubeconfig*

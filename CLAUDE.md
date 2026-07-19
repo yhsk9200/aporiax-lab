@@ -1,0 +1,24 @@
+# CLAUDE.md — aporiax-lab 세션 컨텍스트
+
+이 레포는 ADR-0009(격리 ML/LLMOps 실험 클러스터)의 실험 플레인이다. 프로덕션 컨텍스트는 `~/projects/gitops-infra/CLAUDE.md`를 참조.
+
+## 연결 계약 (요약 — 상세는 README.md·gitops-infra ADR-0009)
+
+- **허용 3지점**: ① 전송로 tailnet ② 관측: OCI Grafana ← Mac Prometheus datasource(읽기 단방향) ③ 기록: Mac 워크로드 → OCI MLflow 클라이언트.
+- **비연결**: OCI ArgoCD 원격 관리 금지 · 가용성 알림 금지 · 클러스터 간 스케줄링 금지 — 의존은 항상 Mac→OCI 단방향.
+
+## 현재 상태 (2026-07-19)
+
+Phase 1 부트스트랩 완료: VM `mlx-1`(OrbStack Ubuntu, arm64) + k3s `v1.32.13+k3s1`, kubeconfig `~/.kube/aporiax-lab.yaml`.
+
+## 다음 작업
+
+1. VM에 tailscaled 설치·인증 (수동)
+2. Mac Prometheus 배포 — 경량 구성(Grafana/Alertmanager 비활성, OCI Grafana가 datasource로 봄)
+3. 연결 계약 이행 — gitops-infra 쪽 PR (OCI Grafana datasource 추가)
+4. ML/LLM 실험 스택 (게이트웨이/RAG/eval, 호스트 네이티브 추론 하이브리드)
+
+## 명명 규칙
+
+- VM 머신: `mlx-N`
+- 네임스페이스: 실험별 자유 — 프로덕션의 `platform-*` 규칙은 이 레포에 적용하지 않는다(의도적).

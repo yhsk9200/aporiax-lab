@@ -9,14 +9,13 @@
 
 ## 현재 상태 (2026-07-19)
 
-Phase 1 부트스트랩 완료: VM `mlx-1`(OrbStack Ubuntu, arm64) + k3s `v1.32.13+k3s1`, kubeconfig `~/.kube/aporiax-lab.yaml`.
+Phase 1 부트스트랩 완료: VM `mlx-1`(OrbStack Ubuntu, arm64) + k3s `v1.32.13+k3s1`, kubeconfig `~/.kube/aporiax-lab.yaml`. Prometheus 배포 완료(2026-07-19, kube-prometheus-stack 83.6.0 — prod 패리티, grafana/AM 비활성, NodePort 30090). mlx-1 tailnet IP = `100.105.255.40`.
 
 ## 다음 작업
 
 1. VM에 tailscaled 설치·인증 (수동)
-2. Mac Prometheus 배포 — 경량 구성(Grafana/Alertmanager 비활성, OCI Grafana가 datasource로 봄)
-3. 연결 계약 이행 — gitops-infra 쪽 PR (OCI Grafana datasource 추가)
-4. ML/LLM 실험 스택 (게이트웨이/RAG/eval, 호스트 네이티브 추론 하이브리드)
+2. 연결 계약 이행 — gitops-infra 쪽 PR (OCI Grafana datasource 추가)
+3. ML/LLM 실험 스택 (게이트웨이/RAG/eval, 호스트 네이티브 추론 하이브리드)
 
 ## 명명 규칙
 

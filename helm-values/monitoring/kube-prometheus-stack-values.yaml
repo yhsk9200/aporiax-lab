@@ -1,0 +1,23 @@
+# 경량 구성 — ADR-0009 연결 계약에 따른 의도적 비활성:
+# - grafana.enabled: false — 관측 UI는 OCI Grafana가 이 Prometheus를
+#   datasource로 봄 (연결 계약 ②, 읽기 단방향). 여기 또 띄우면 중복.
+# - alertmanager.enabled: false — 실험 플레인 가용성 알림 금지 (비연결 조항.
+#   Mac이 꺼지는 건 정상 상태라 알림은 노이즈).
+grafana:
+  enabled: false
+alertmanager:
+  enabled: false
+prometheus:
+  service:
+    # OCI Grafana가 tailnet 경유(http://100.105.255.40:30090)로 접근 —
+    # VM은 공인 IP가 없어(OrbStack NAT) NodePort여도 노출 표면은 tailnet뿐.
+    type: NodePort
+    nodePort: 30090
+  prometheusSpec:
+    retention: 3d          # 간헐 가동 실험 플레인 — 장기 보존 무의미
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi

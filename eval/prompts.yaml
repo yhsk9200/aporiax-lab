@@ -1,0 +1,45 @@
+# S3 eval 프롬프트셋 — 카테고리 3종 x 10문항 (docs/llm-slice-plan.md S3).
+# expect_substring: 응답 텍스트에 이 문자열이 포함되면 pass=True로 채점하는
+# 단순 키워드 매칭(정교한 채점기가 아님 — 게이트웨이/모델 배선이 살아있는지
+# 굴리는 v1 슬라이스 목적에 맞는 최소 기준).
+prompts:
+  - id: reason1
+    category: reasoning
+    prompt: "3 곱하기 7은? 숫자만 답하세요."
+    expect_substring: "21"
+  - id: reason2
+    category: reasoning
+    prompt: "1부터 10까지의 합은 얼마인가요? 숫자만 답하세요."
+    expect_substring: "55"
+  - id: reason3
+    category: reasoning
+    prompt: "어제가 화요일이었다면 내일은 무슨 요일인가요? 요일만 답하세요."
+    expect_substring: "목요일"
+  - id: reason4
+    category: reasoning
+    prompt: "지구에서 가장 큰 대륙은 무엇인가요? 대륙 이름만 답하세요."
+    expect_substring: "아시아"
+  - id: code1
+    category: code_gen
+    prompt: "파이썬으로 리스트를 뒤집는 한 줄 코드를 작성해줘. 코드만 출력해줘."
+    expect_substring: "[::-1]"
+  - id: code2
+    category: code_gen
+    prompt: "파이썬에서 리스트의 최댓값을 구하는 내장 함수 이름은 무엇인가요? 함수 이름만 답하세요."
+    expect_substring: "max"
+  - id: code3
+    category: code_gen
+    prompt: "파이썬에서 나머지를 구하는 연산자는 무엇인가요? 기호만 답하세요."
+    expect_substring: "%"
+  - id: summary1
+    category: korean_summary
+    prompt: "다음 문장을 한 문장으로 요약하세요: '오늘 서울 지역은 아침부터 많은 비가 내렸고, 기온이 크게 떨어져 우산과 겉옷이 필요했다.'"
+    expect_substring: "비"
+  - id: summary2
+    category: korean_summary
+    prompt: "다음 내용을 한 문장으로 요약하세요: '이 회사는 새로운 인공지능 모델을 발표하며 기존 대비 추론 속도를 두 배로 개선했다고 밝혔다.'"
+    expect_substring: "인공지능"
+  - id: summary3
+    category: korean_summary
+    prompt: "다음 내용을 한 문장으로 요약하세요: '중앙은행이 물가 상승 압력을 완화하기 위해 기준금리를 0.25%포인트 인상하기로 결정했다.'"
+    expect_substring: "금리"

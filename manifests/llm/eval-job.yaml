@@ -1,0 +1,295 @@
+# S3 — eval Job: LiteLLM 게이트웨이 호출 → OCI MLflow 기록 (docs/llm-slice-plan.md S3,
+# ADR-0009 연결 계약 ③ 실증). ConfigMap eval-scripts는 eval/prompts.yaml·
+# eval/run_eval.py를 그대로 임베드한 것 — Job은 클러스터 내 ConfigMap을 읽고,
+# eval/ 원본은 소스 트리에 남는 편집 대상이라는 역할 분리다(둘 다 필요, 중복이
+# 아님).
+#
+# 주의: 이 ConfigMap의 두 파일은 eval/prompts.yaml·eval/run_eval.py와 반드시
+# 동일 내용을 유지할 것. 둘 중 하나만 고치면 드리프트(클러스터에서 실행되는
+# 코드와 레포에서 보이는 코드가 달라짐) — 수정 시 항상 양쪽에 반영.
+#
+# 재실행: Job은 필드 대부분이 immutable이라 재적용 전 삭제 필요.
+#   kubectl delete job llm-eval -n llm --ignore-not-found
+#   kubectl apply -f manifests/llm/eval-job.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eval-scripts
+  namespace: llm
+data:
+  prompts.yaml: |
+    # S3 eval 프롬프트셋 — 카테고리 3종 x 10문항 (docs/llm-slice-plan.md S3).
+    # expect_substring: 응답 텍스트에 이 문자열이 포함되면 pass=True로 채점하는
+    # 단순 키워드 매칭(정교한 채점기가 아님 — 게이트웨이/모델 배선이 살아있는지
+    # 굴리는 v1 슬라이스 목적에 맞는 최소 기준).
+    prompts:
+      - id: reason1
+        category: reasoning
+        prompt: "3 곱하기 7은? 숫자만 답하세요."
+        expect_substring: "21"
+      - id: reason2
+        category: reasoning
+        prompt: "1부터 10까지의 합은 얼마인가요? 숫자만 답하세요."
+        expect_substring: "55"
+      - id: reason3
+        category: reasoning
+        prompt: "어제가 화요일이었다면 내일은 무슨 요일인가요? 요일만 답하세요."
+        expect_substring: "목요일"
+      - id: reason4
+        category: reasoning
+        prompt: "지구에서 가장 큰 대륙은 무엇인가요? 대륙 이름만 답하세요."
+        expect_substring: "아시아"
+      - id: code1
+        category: code_gen
+        prompt: "파이썬으로 리스트를 뒤집는 한 줄 코드를 작성해줘. 코드만 출력해줘."
+        expect_substring: "[::-1]"
+      - id: code2
+        category: code_gen
+        prompt: "파이썬에서 리스트의 최댓값을 구하는 내장 함수 이름은 무엇인가요? 함수 이름만 답하세요."
+        expect_substring: "max"
+      - id: code3
+        category: code_gen
+        prompt: "파이썬에서 나머지를 구하는 연산자는 무엇인가요? 기호만 답하세요."
+        expect_substring: "%"
+      - id: summary1
+        category: korean_summary
+        prompt: "다음 문장을 한 문장으로 요약하세요: '오늘 서울 지역은 아침부터 많은 비가 내렸고, 기온이 크게 떨어져 우산과 겉옷이 필요했다.'"
+        expect_substring: "비"
+      - id: summary2
+        category: korean_summary
+        prompt: "다음 내용을 한 문장으로 요약하세요: '이 회사는 새로운 인공지능 모델을 발표하며 기존 대비 추론 속도를 두 배로 개선했다고 밝혔다.'"
+        expect_substring: "인공지능"
+      - id: summary3
+        category: korean_summary
+        prompt: "다음 내용을 한 문장으로 요약하세요: '중앙은행이 물가 상승 압력을 완화하기 위해 기준금리를 0.25%포인트 인상하기로 결정했다.'"
+        expect_substring: "금리"
+
+  run_eval.py: |
+    #!/usr/bin/env python3
+    """S3 eval 러너 — docs/llm-slice-plan.md S3.
+
+    LiteLLM 게이트웨이(OpenAI 호환 /v1/chat/completions)로 prompts.yaml의 문항을
+    순서대로 호출해 응답·지연·토큰을 측정하고, OCI MLflow에 run/metrics/artifact로
+    기록한다. proxied artifacts(MLflow 서버 --serve-artifacts)라 S3 자격증명 없이
+    MLFLOW_TRACKING_URI만으로 아티팩트 업로드까지 된다.
+
+    환경변수:
+      GATEWAY_URL          기본 http://litellm.llm.svc.cluster.local:4000
+      MLFLOW_TRACKING_URI  (필수 — 클러스터에서 env로 주입됨)
+      EVAL_MODEL           기본 gemma4-12b
+      PROMPTS_PATH         기본 /eval/prompts.yaml
+
+    개별 문항의 게이트웨이 호출 실패는 그 문항만 pass=False로 기록하고 계속
+    진행한다(전체 Job을 죽이지 않음). MLflow 연결/기록 실패는 잡의 목적 자체가
+    무의미해지므로 명확한 에러 메시지와 함께 exit 1.
+    """
+    import json
+    import os
+    import statistics
+    import sys
+    import tempfile
+    import time
+
+    import requests
+    import yaml
+
+    import mlflow
+
+
+    def load_prompts(path):
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        items = data["prompts"]
+        if not items:
+            raise ValueError(f"프롬프트가 비어 있음: {path}")
+        return items
+
+
+    def call_gateway(gateway_url, model, prompt, timeout=60):
+        """게이트웨이에 단일 문항을 호출한다.
+
+        반환: dict(latency_s, completion_tokens, prompt_tokens, response_text, error)
+        실패해도 예외를 올리지 않고 error 필드에 사유를 담아 반환한다 — 호출부가
+        이 문항만 pass=False로 처리하고 나머지 문항을 계속 진행할 수 있게 하기 위함.
+        """
+        url = f"{gateway_url}/v1/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        start = time.monotonic()
+        try:
+            resp = requests.post(url, json=payload, timeout=timeout)
+            latency_s = time.monotonic() - start
+            resp.raise_for_status()
+            body = resp.json()
+            response_text = body["choices"][0]["message"]["content"]
+            usage = body.get("usage", {}) or {}
+            return {
+                "latency_s": latency_s,
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "response_text": response_text,
+                "error": None,
+            }
+        except Exception as exc:  # 게이트웨이 호출 실패 — 문항 단위로 흡수
+            latency_s = time.monotonic() - start
+            return {
+                "latency_s": latency_s,
+                "completion_tokens": 0,
+                "prompt_tokens": 0,
+                "response_text": "",
+                "error": str(exc),
+            }
+
+
+    def run_eval(prompts, gateway_url, model):
+        results = []
+        for item in prompts:
+            call = call_gateway(gateway_url, model, item["prompt"])
+            expect = item.get("expect_substring", "")
+            passed = bool(expect) and expect in call["response_text"] and call["error"] is None
+            results.append(
+                {
+                    "id": item["id"],
+                    "category": item["category"],
+                    "prompt": item["prompt"],
+                    "expect_substring": expect,
+                    "pass": passed,
+                    "latency_s": call["latency_s"],
+                    "completion_tokens": call["completion_tokens"],
+                    "prompt_tokens": call["prompt_tokens"],
+                    "response_text": call["response_text"],
+                    "error": call["error"],
+                }
+            )
+        return results
+
+
+    def percentile(values, pct):
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        if len(ordered) == 1:
+            return ordered[0]
+        k = (len(ordered) - 1) * (pct / 100.0)
+        f = int(k)
+        c = min(f + 1, len(ordered) - 1)
+        if f == c:
+            return ordered[f]
+        return ordered[f] + (ordered[c] - ordered[f]) * (k - f)
+
+
+    def compute_metrics(results):
+        latencies = [r["latency_s"] for r in results]
+        completion_tokens = [r["completion_tokens"] for r in results]
+        pass_count = sum(1 for r in results if r["pass"])
+        return {
+            "pass_rate": pass_count / len(results) if results else 0.0,
+            "avg_latency_s": statistics.fmean(latencies) if latencies else 0.0,
+            "p95_latency_s": percentile(latencies, 95),
+            "total_completion_tokens": sum(completion_tokens),
+            "avg_completion_tokens": statistics.fmean(completion_tokens) if completion_tokens else 0.0,
+        }
+
+
+    def main():
+        gateway_url = os.environ.get("GATEWAY_URL", "http://litellm.llm.svc.cluster.local:4000")
+        model = os.environ.get("EVAL_MODEL", "gemma4-12b")
+        prompts_path = os.environ.get("PROMPTS_PATH", "/eval/prompts.yaml")
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+
+        if not tracking_uri:
+            print("ERROR: MLFLOW_TRACKING_URI가 설정되어 있지 않음 — 기록 대상 없이 실행 불가", file=sys.stderr)
+            sys.exit(1)
+
+        mlflow.set_tracking_uri(tracking_uri)
+
+        # MLflow 연결 확인을 먼저 해서, 이후 게이트웨이 호출에 시간을 쓰고 나서야
+        # 기록 불가를 발견하는 낭비를 막는다.
+        try:
+            mlflow.set_experiment("llm-eval")
+        except Exception as exc:
+            print(f"ERROR: MLflow 연결 실패 (tracking_uri={tracking_uri}): {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        prompts = load_prompts(prompts_path)
+        results = run_eval(prompts, gateway_url, model)
+        metrics = compute_metrics(results)
+
+        try:
+            with mlflow.start_run(run_name=f"{model}-{len(prompts)}q"):
+                mlflow.log_params(
+                    {
+                        "model": model,
+                        "gateway_url": gateway_url,
+                        "prompt_count": len(prompts),
+                    }
+                )
+                mlflow.log_metrics(
+                    {
+                        "pass_rate": metrics["pass_rate"],
+                        "avg_latency_s": metrics["avg_latency_s"],
+                        "p95_latency_s": metrics["p95_latency_s"],
+                        "total_completion_tokens": metrics["total_completion_tokens"],
+                        "avg_completion_tokens": metrics["avg_completion_tokens"],
+                    }
+                )
+                for i, r in enumerate(results):
+                    mlflow.log_metric("latency_s", r["latency_s"], step=i)
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    results_path = os.path.join(tmpdir, "results.json")
+                    with open(results_path, "w", encoding="utf-8") as f:
+                        json.dump(results, f, ensure_ascii=False, indent=2)
+                    mlflow.log_artifact(results_path)
+        except Exception as exc:
+            print(f"ERROR: MLflow run 기록 실패 (tracking_uri={tracking_uri}): {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        print(
+            f"pass_rate={metrics['pass_rate']:.2f} "
+            f"avg_latency_s={metrics['avg_latency_s']:.2f} "
+            f"model={model} prompt_count={len(prompts)}"
+        )
+        sys.exit(0)
+
+
+    if __name__ == "__main__":
+        main()
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: llm-eval
+  namespace: llm
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: llm-eval
+          image: ghcr.io/yhsk9200/mlflow:v3.6.0-pg1
+          command: ["python", "/eval/run_eval.py"]
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "http://100.69.52.25:30500"
+            - name: GATEWAY_URL
+              value: "http://litellm.llm.svc.cluster.local:4000"
+            - name: EVAL_MODEL
+              value: "gemma4-12b"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: eval-scripts
+              mountPath: /eval
+      volumes:
+        - name: eval-scripts
+          configMap:
+            name: eval-scripts

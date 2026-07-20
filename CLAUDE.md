@@ -15,7 +15,7 @@ Phase 1 부트스트랩 완료: VM `mlx-1`(OrbStack Ubuntu, arm64) + k3s `v1.32.
 
 1. ~~VM에 tailscaled 설치·인증~~ → ✅ 완료 (2026-07-19, mlx-1 = 100.105.255.40)
 2. ~~연결 계약 ② 이행~~ → ✅ 완료 (2026-07-19, gitops-infra PR #43): OCI Grafana에 aporiax-lab-prometheus datasource — ConfigMap 반영·sidecar 리로드 200 실측. 계약 ③(→OCI MLflow 기록)은 첫 실험 워크로드에서 실측 예정
-3. ML/LLM 실험 스택 — **첫 슬라이스 계획 확정** (`docs/llm-slice-plan.md`, 2026-07-19): S1 WebUI→Ollama 직결(체감 UI) → S2 LiteLLM 게이트웨이 → S3 eval Job + 계약 ③ MLflow 기록 실측(선행: gitops-infra에 MLflow NodePort 30500 + allowed-hosts PR). Langfuse는 조건부 보류 — MLflow GenAI tracing으로 흡수. S1 ✅ 완료 (2026-07-19: 호스트 Ollama *:11434 재바인딩, ollama-host Endpoints=0.250.250.254, Open WebUI v0.10.2 NodePort 30080 — 파드→호스트 게이트·HTTP 200·브라우저 대화 눈검증까지 통과). 다음 착수점 = S2 (LiteLLM 게이트웨이)
+3. ML/LLM 실험 스택 — S1 WebUI+Ollama ✅ · S2 LiteLLM 게이트웨이 ✅ · S3 eval 루프+연결 계약 ③ ✅ (2026-07-20: eval Job이 게이트웨이 경유 10문항 평가 → OCI MLflow에 run·metric·results.json 기록, NAS 물리 존재 실측. pass_rate 1.0, avg_latency 9.35s). 다음 착수점 = RAG/벡터 DB 또는 모델 비교 슬라이스 (docs/llm-slice-plan.md 비목표 섹션 참조)
 
 ## 명명 규칙
 
